@@ -1,0 +1,2 @@
+# ExcelScriptTools
+Excelファイルを操作するための短いスクリプト集
