@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<style>
+.progress {
+   width: 50%;
+   height: 30px;
+   background-color: #F5F5F5;
+   border-radius: 4px;
+   box-shadow: inset 0 1px 2px rgba(0,0,0,.1);
+ }
+ .progress-bar {
+   transition: width 0.5s linear;
+   height: 100%;
+   background-color: #337AB7;
+   border-radius: 4px;
+   line-height:30px;
+   color: white;
+ }
+table {
+	border-collapse: collapse;
+	text-align: left;
+	line-height: 1.5;
+}
+table thead th {
+	padding: 5px;
+	font-weight: bold;
+	vertical-align: top;
+	color: #369;
+	border-bottom: 3px solid #036;
+}
+table tbody th {
+	padding:5px;
+	font-weight: bold;
+	vertical-align: top;
+	border-bottom: 1px solid #ccc;
+	background: #f3f6f7;
+}
+table td {
+	padding: 5px;
+	vertical-align: top;
+	border-bottom: 1px solid #ccc;
+}
+</style>
+<script language="JScript">
+var excel;
+try{
+	excel = new ActiveXObject("Excel.Application");
+}catch(e){
+	alert("IEにて、ローカルで実行してください");
+}
+excel.EnableEvents = false;//マクロ無効化
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+var files; //ファイル名を格納する配列
+var count = 0; //ヒット数
+var numberOfFiles; //総ファイル数
+var option = "g"; //正規表現オプション
+
+var SPAN_RED = "<span style='color:red;'>$1</span>";
+//キャラクタ削減用
+var d = document;
+function o(id){
+	return d.getElementById(id);
+}
+function v(id){
+	return o(id).value;
+}
+//シートオブジェクトの配列
+var sheets;
+
+//エントリーポイント
+function main(){
+	//入力チェック
+	var path = v("path");
+	var key = v("key");
+	if(path == ""){
+		alert("パスを入力してください");
+		return;
+	}
+	if(key == ""){
+		alert("キーワードを入力してください");
+		return;
+	}
+	switchForms();
+
+	//大文字小文字区別するかどうかでオプションを変更
+	if(o("case").checked){
+		option = "gi";//グローバル、大文字小文字区別しない
+	}
+	
+	o("status").innerText = "対象ファイルをリストアップ中";
+
+	//初期化
+	isCancel = false;
+	excel.Visible = false;
+	clearList();
+	files = new Array();
+	count = 0;
+	o("bar").style.width = "0%";
+	o("bar").innerText = "0%";
+	//ここで一旦IEに制御を返す
+	setTimeout(filesearch, 500);
+}
+function closeBooks(books){
+	for(var i = 1, size = books.Count; i <= size; i++){
+		books(i).Close(false);
+	}
+}
+//キャンセルチェック関数
+var isCancel = false; //キャンセルされたか
+function canceled(){
+	if(isCancel){
+		o("status").innerText = "キャンセル";
+		alert("キャンセルしました。");
+		switchForms();
+		//開いていた場合は閉じる
+		closeBooks(excel.Workbooks);
+	}
+	return isCancel;
+}
+function onCancel(){
+	isCancel = true;
+}
+
+function filesearch(){
+	var path = v("path");
+	var key = v("key");
+	
+	//対象ファイルを検索する
+	searchFolders(fso.getFolder(path));
+
+	numberOfFiles = files.length;
+	if(numberOfFiles == 0){
+		alert("対象ファイルはありません。");
+		o("status").innerText = "対象ファイルなし";
+		switchForms();
+		return;
+	}
+	
+	//ここで一旦IEに制御を返す
+	setTimeout(function(){
+		setNext("");
+	}, 500);
+}
+
+//対象ファイルのリストアップ
+function searchFolders(topfolder){
+	if(canceled()) return;
+
+	var e = new Enumerator(topfolder.SubFolders);
+	for(;!e.atEnd(); e.moveNext()){
+		searchFolders(e.item());
+	}
+
+	e = new Enumerator(topfolder.Files);
+	for(;!e.atEnd(); e.moveNext()){
+		var filename = e.item().Path;
+		if(filename.match(/\.xlsx?$/i)){//xlsとxlsx
+			files.push(filename);
+		}
+	}
+}
+
+function searchMain(path){
+	if(canceled()) return;
+
+	var key = v("key");
+	var pass = v("pass");
+	try{
+		var book = excel.Workbooks.Open(path, 0, true, 5, pass);
+	}catch(e){
+		createList("ファイルオープンに失敗", "", "", "", path);
+		setNext();
+		return;
+	}
+	sheets = new Array();
+	for(var i = 1, size = book.WorkSheets.Count; i <= size; i++){
+		sheets.push(book.WorkSheets(i));
+	}
+	sheetProc(book, path);
+}
+
+//シート単位で処理する関数
+function sheetProc(book, path){
+	if(canceled()) return;
+
+	var sheet = sheets.shift();
+	if(sheet === undefined){
+		book.Close(false);
+		setNext();
+		return;
+	}
+	var key = v("key");
+	var pass = v("pass");
+	if(o("cell").checked){
+		searchCells(book, sheet, path, key);
+	}
+	if(o("shape").checked){
+		searchShapes(book, sheet, path, key);
+	}
+	if(o("comment").checked){
+		searchComments(book, sheet, path, key);
+	}
+	setTimeout(function(){
+		sheetProc(book, path);
+	}, 500);
+}
+
+//ステータスの更新と次ファイル実行のスケジューリング
+function setNext(){
+	var path = files.shift();
+	if(path === undefined){
+		o("status").innerText = "完了 " + count + "件ヒットしました";
+		alert("完了しました。\n" + count + "件ヒットしました。"); 
+		switchForms();
+		closeBooks(excel.Workbooks);
+		return;
+	}
+	//ステータスの更新を描画するため、間欠実行にして定期的にIEに制御を戻す
+	var current = numberOfFiles - files.length;
+	o("status").innerText = current + "/" + numberOfFiles +"ファイル処理中... " + path;
+	var parcent = Math.floor((current / numberOfFiles * 100)) + "%";
+	o("bar").style.width = parcent;
+	o("bar").innerText = parcent;
+	setTimeout(function(){
+		searchMain(path);
+	}, 500);
+}
+
+//セルの検索
+function searchCells(book, sheet, path, key){
+	var range = sheet.UsedRange;
+	if(!range) return;
+	
+    if(excel.WorksheetFunction.CountA(range) == 0){
+        console.log("空のシートなので飛ばす ");
+        return;
+    }
+
+	//リストがあると結合解除がうまくいかないので削除
+	for(var i = 1, cnt = sheet.ListObjects.Count; i <= cnt; i++){
+		sheet.ListObjects(i).Unlist();
+	}
+	//結合を解除（共有されている場合は解除できない）
+	if(!book.MultiUserEditing){
+		range.UnMerge();
+	}
+	//非表示、オートフィルタを解除
+	if(o("hide").checked){
+		sheet.Columns.Hidden = false;
+		sheet.Rows.Hidden = false;
+		sheet.AutoFilterMode = false;
+	}
+    
+	var bookName = book.Name;
+	var sheetName = sheet.Name;
+	var reg = new RegExp("("+key+")", option);
+
+	//チェックと結果生成する関数
+	var checkText = function(text, range, reg, i, j){
+		if(text && reg.test(text)){
+			if(i&&j){
+				range = range.Cells(i,j);
+			}
+	    	text = text.replace(reg, SPAN_RED);
+			createList(bookName, sheetName, "セル(" + range.Address + ")",
+ 				text, path, range.Address);
+		}
+	};
+	
+	//rangeがただ1つのセルの場合、ValueはstringとなってVBArrayが生成できない
+    if(typeof range.Value == "string"){
+		checkText(range.Value, range, reg);
+		return;
+    }
+
+    //Range#ValueはJavaScriptだとうまく取得できないのでVBArrayにする
+    var vbrange = new VBArray(range.Value);
+    for(var i = vbrange.lbound(1), xlen = vbrange.ubound(1); i < xlen; i++){
+        for(var j = vbrange.lbound(2), ylen = vbrange.ubound(2); j < ylen; j++){
+            var text = vbrange.getItem(i,j);
+			checkText(text, range, reg, i, j);
+		}
+    }
+}
+//オートシェイプの検索
+function searchShapes(book, sheet, path, key){
+	var shps = sheet.Shapes;
+	if(!shps) return;
+
+ 	//結合を解除（共有されている場合は解除できない）
+	if(!book.MultiUserEditing){
+		for(var i = 1, cnt = shps.Count ; i <= cnt; i++){
+			var item = shps.Item(i);
+			if(item.Type == 6){
+				ungroup(item);
+			}
+		}
+		shps = sheet.Shapes;
+	}
+
+	var reg = new RegExp("("+key+")", option);
+	var items = new Array(shps);
+	for(var i = 0, len = items.length; i < len; i++){
+		var item = items[i];
+
+		//MsoShapeType オートシェイプ(1) コールアウト(2)(ふき出し?) テキストボックス(17)
+		switch(item.Type){
+			case 1: case 2: case 17:
+				try{
+					//Charactersが失敗する時があるので例外捕捉
+					var text = item.TextFrame.Characters().Text; 
+				}catch(e){
+					continue;
+				}
+				if(text && reg.test(text)){
+					text = text.replace(reg, SPAN_RED);
+					createList(book.Name, sheet.Name, 
+						"オートシェイプ(" + item.TopLeftCell.Address + ")",
+						text, path, item.TopLeftCell.Address);
+				}
+				break;
+			default:
+				break;
+		}
+	}
+}
+//グループ化を全て解除
+//解除するとオートシェイプが増えるので自動的に対象となる
+function ungroup(obj){
+	if(obj && obj.Type == 6){
+		try{
+			//Ungroupが失敗する時があるので例外捕捉
+			var obj = obj.Ungroup();
+			for(var i = 1, cnt = obj.Count; i <= cnt; i++){
+				ungroup(obj.Item(i));
+			}
+		}catch(e){}
+	}
+}
+
+//コメントの検索
+function searchComments(book, sheet, path, key){
+	var cmnts = sheet.Comments;
+	if(!cmnts) return;
+
+	var reg = new RegExp("("+key+")", option);
+	var items = new Array(cmnts);
+	for(var i = 0, len = items.length; i < len; i++){
+		var item = items[i];
+        try{
+            //Charactersが失敗する時があるので例外捕捉
+            var text = item.Shape.TextFrame.Characters().Text;    
+        }catch(e){
+            continue;
+        }
+    	if(text && reg.test(text)){
+			text = text.replace(reg, SPAN_RED);
+			createList(book.Name, sheet.Name,
+				 "コメント(" + item.Parent.Address + ")", text, path, item.Parent.Address);
+		}
+	}
+}
+
+//リストの生成
+function createList(file, sheet, type, text, path, addr){
+
+	count++;
+	var tr = d.createElement("tr");
+	var tds = new Array();
+	while(tds.length < 6){
+		tds.push(d.createElement("td"));
+	}
+	tds[0].innerText = count;
+	tds[1].innerText = file;
+	tds[2].innerText = sheet;
+	tds[3].innerText = type;
+	tds[4].innerHTML = text;
+
+	//開くボタン パスの\が1つだと消えてしまうので、二重に変換する
+	var pass = v("pass");
+	tds[5].innerHTML = path + "<input type='button' value='開く' " + 
+		"onclick='openDocument(\"" + path.replace(/\\/g, "\\\\") +
+		"\",\"" + pass + "\",\"" + sheet + "\",\"" + addr + "\")' disabled='disabled'>";
+
+	tds.forEach(function(td){
+		tr.appendChild(td);
+	});
+	o("tb").appendChild(tr);
+}
+
+//開くボタンの処理
+function openDocument(path, pass, sheet, addr){
+
+	//開いていた場合は閉じる
+	if(excel.ActiveWorkbook){
+		excel.ActiveWorkbook.Close(false);
+	}
+	try{
+		//Excelオブジェクトは閉じられても死なないので使いまわす
+		var book = excel.Workbooks.Open(path, 0, true, 5, pass);
+	}catch(e){
+		alert("ファイルが開けませんでした。");
+		return;
+	}
+	//先に表示して徐々にアクティブ化する（エラー防止）
+	excel.Visible = true;
+	var sht = book.WorkSheets(sheet);
+	sht.Activate();
+	sht.Range(addr).Activate();
+}
+
+function clearList(){
+	var table = o("tb");
+	var childs = table.childNodes;
+	
+	//逆順に消していかないとおかしくなるため逆にループ
+	for(var i = childs.length - 1; i > 0; i--){
+		table.removeChild(childs[i]);
+	}
+}
+
+//キャンセル以外の無効化・有効化切り替え
+function switchForms(){
+	var forms = d.getElementsByTagName("input");
+	for(var i = 0, len = forms.length; i < len; i++){
+		if(forms[i].id != "cancel"){
+			forms[i].disabled = !forms[i].disabled;
+		}
+	}
+}
+function quit(){
+	excel.Quit();
+	closeBooks(excel.Workbooks);
+	excel = null;
+}
+</script>
+</head>
+<body onUnload="quit();">
+Excelドキュメント検索ツール<br>
+<div style="color:red;display:block">
+<ul>
+<li>検索中に裏でExcelを起動しないでください。検索中の状態が表示されてしまいます。</li>
+<li>止めるときは強制終了せず、キャンセルボタンを押して待ってください。すぐには止まりません。</li>
+<li>強制終了した場合はExcelのプロセスが残っているのでタスクマネージャで終了してください。</li>
+<li>英字の全角半角は区別します。</li>
+<li>検索結果の開くボタンで開いた場合は読み取り専用になります。また再度押すと既に開いていたファイルを閉じます。</li>
+<li>共有ブックでは結合セル内の文字列を検索できません。</li>
+</ul>
+</div>
+<br>
+<table border="1">
+	<tbody>
+	<tr>
+		<th>キーワード：</th><td><input id="key" type="text" size="50"/></td>
+	</tr>
+	<tr>
+		<th>パス：</th><td><input id="path" type="text" size="100"/></td>
+	</tr>
+    <tr>
+		<th>パスワードが必要な場合：</th><td><input id="pass" type="password"/></td>
+	</tr>
+	<tr>
+		<th>検索対象：</th><td>
+			<input id="cell" type="checkbox" checked="checked"/><label for="cell">セル</label>
+			<input id="shape" type="checkbox" checked="checked"/><label for="shape">オートシェイプ</label>
+			<input id="comment" type="checkbox" checked="checked"/><label for="comment">コメント</label>
+			</td>
+	<tr>
+		<td colspan="2">
+			<input id="case" type="checkbox" checked="checked"/><label for="case">大文字小文字を区別しない（英字）</label><br>
+			<input id="hide" type="checkbox" checked="checked"/><label for="hide">非表示、オートフィルタの隠し部分を検索する</label>
+		</td>
+	</tr>
+	<tr>
+		<td colspan="2" align="right"><input id="search" type="button" value="検索" onclick="main();"/> <input id="cancel" type="button" value="キャンセル" onclick="onCancel();"/>
+	</tr>
+	</tbody>
+</table>
+<br>
+ステータス：<span id="status"></span>
+<div id="prog-bar" class="progress">
+	<div id="bar" class="progress-bar"></div>
+</div>
+<br>
+<table border="1">
+<thead>
+<tr>
+	<th></th><th>ファイル名</th><th>シート名</th><th>種別</th><th>内容</th><th>パス</th>
+</tr>
+</thead>
+<tbody id="tb">
+</tbody></table></body></html>
