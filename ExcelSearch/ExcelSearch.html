@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <!--
- @license ExcelSearch v1.0
+ @license ExcelSearch v1.2
  (c) 2016 Junichi Muto (ムチャ) http://jmuto.info/
  License: MIT
  -->
@@ -71,6 +71,15 @@ function o(id){
 function v(id){
 	return o(id).value;
 }
+//ActiveXObjectの配列をイテレーションするオブジェクト
+var VBCollection = function(c){
+	this.forEach = function(func){
+		for(var e = new Enumerator(c); !e.atEnd(); e.moveNext()){
+			func(e.item());
+		}
+	};
+}
+
 //シートオブジェクトの配列
 var sheets;
 
@@ -152,19 +161,15 @@ function filesearch(){
 //対象ファイルのリストアップ
 function searchFolders(topfolder){
 	if(canceled()) return;
-
-	var e = new Enumerator(topfolder.SubFolders);
-	for(;!e.atEnd(); e.moveNext()){
-		searchFolders(e.item());
-	}
-
-	e = new Enumerator(topfolder.Files);
-	for(;!e.atEnd(); e.moveNext()){
-		var filename = e.item().Path;
+	new VBCollection(topfolder.SubFolders).forEach(function(folder){
+		searchFolders(folder);
+	});
+	new VBCollection(topfolder.Files).forEach(function(file){
+		var filename = file.Path;
 		if(filename.match(/\.xlsx?$/i)){//xlsとxlsx
 			files.push(filename);
 		}
-	}
+	});
 }
 
 function searchMain(path){
@@ -180,9 +185,9 @@ function searchMain(path){
 		return;
 	}
 	sheets = new Array();
-	for(var i = 1, size = book.WorkSheets.Count; i <= size; i++){
-		sheets.push(book.WorkSheets(i));
-	}
+	new VBCollection(book.WorkSheets).forEach(function(sheet){
+		sheets.push(sheet);
+	});
 	sheetProc(book, path);
 }
 
@@ -225,9 +230,11 @@ function setNext(){
 	//ステータスの更新を描画するため、間欠実行にして定期的にIEに制御を戻す
 	var current = numberOfFiles - files.length;
 	o("status").innerText = current + "/" + numberOfFiles +"ファイル処理中... " + path;
+	//プログレスバーが不要なら以下３行は不要
 	var parcent = Math.floor((current / numberOfFiles * 100)) + "%";
 	o("bar").style.width = parcent;
 	o("bar").innerText = parcent;
+
 	setTimeout(function(){
 		searchMain(path);
 	}, 500);
@@ -238,10 +245,10 @@ function searchCells(book, sheet, path, key){
 	var range = sheet.UsedRange;
 	if(!range) return;
 	
-    if(excel.WorksheetFunction.CountA(range) == 0){
-        console.log("空のシートなので飛ばす ");
-        return;
-    }
+	if(excel.WorksheetFunction.CountA(range) == 0){
+	console.log("空のシートなので飛ばす ");
+	return;
+	}
 
 	//リストがあると結合解除がうまくいかないので削除
 	for(var i = 1, cnt = sheet.ListObjects.Count; i <= cnt; i++){
@@ -275,20 +282,21 @@ function searchCells(book, sheet, path, key){
 	};
 	
 	//rangeがただ1つのセルの場合、ValueはstringとなってVBArrayが生成できない
-    if(typeof range.Value == "string"){
+	if(typeof range.Value == "string"){
 		checkText(range.Value, range, reg);
 		return;
-    }
+	}
 
-    //Range#ValueはJavaScriptだとうまく取得できないのでVBArrayにする
-    var vbrange = new VBArray(range.Value);
-    for(var i = vbrange.lbound(1), xlen = vbrange.ubound(1); i < xlen; i++){
-        for(var j = vbrange.lbound(2), ylen = vbrange.ubound(2); j < ylen; j++){
-            var text = vbrange.getItem(i,j);
+	//Range#ValueはJavaScriptだとうまく取得できないのでVBArrayにする
+	var vbrange = new VBArray(range.Value);
+	for(var i = vbrange.lbound(1), xlen = vbrange.ubound(1); i < xlen; i++){
+		for(var j = vbrange.lbound(2), ylen = vbrange.ubound(2); j < ylen; j++){
+			var text = vbrange.getItem(i,j);
 			checkText(text, range, reg, i, j);
 		}
-    }
+	}
 }
+
 //オートシェイプの検索
 function searchShapes(book, sheet, path, key){
 	var shps = sheet.Shapes;
@@ -306,9 +314,7 @@ function searchShapes(book, sheet, path, key){
 	}
 
 	var reg = new RegExp("("+key+")", option);
-	for(var i = 1, len = shps.Count; i <= len; i++){
-		var item = shps.Item(i);
-
+	new VBCollection(shps).forEach(function(item){
 		//MsoShapeType オートシェイプ(1) コールアウト(2)(ふき出し?) テキストボックス(17)
 		switch(item.Type){
 			case 1: case 2: case 17:
@@ -316,7 +322,7 @@ function searchShapes(book, sheet, path, key){
 					//Charactersが失敗する時があるので例外捕捉
 					var text = item.TextFrame.Characters().Text; 
 				}catch(e){
-					continue;
+					return;
 				}
 				if(text && reg.test(text)){
 					text = text.replace(reg, SPAN_RED);
@@ -328,8 +334,9 @@ function searchShapes(book, sheet, path, key){
 			default:
 				break;
 		}
-	}
+	});
 }
+
 //グループ化を全て解除
 //解除するとオートシェイプが増えるので自動的に対象となる
 function ungroup(obj){
@@ -350,20 +357,19 @@ function searchComments(book, sheet, path, key){
 	if(!cmnts) return;
 
 	var reg = new RegExp("("+key+")", option);
-	for(var i = 1, len = cmnts.Count; i <= len; i++){
-		var item = cmnts.Item(i);
-        try{
-            //Charactersが失敗する時があるので例外捕捉
-            var text = item.Shape.TextFrame.Characters().Text;    
-        }catch(e){
-            continue;
-        }
-    	if(text && reg.test(text)){
+	new VBCollection(cmnts).forEach(function(item){
+		try{
+			//Charactersが失敗する時があるので例外捕捉
+			var text = item.Shape.TextFrame.Characters().Text;    
+		}catch(e){
+			return;
+		}
+		if(text && reg.test(text)){
 			text = text.replace(reg, SPAN_RED);
 			createList(book.Name, sheet.Name,
 				 "コメント(" + item.Parent.Address + ")", text, path, item.Parent.Address);
 		}
-	}
+	});
 }
 
 //リストの生成
