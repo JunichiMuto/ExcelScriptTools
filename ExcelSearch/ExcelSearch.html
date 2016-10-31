@@ -61,6 +61,7 @@ var files; //ファイル名を格納する配列
 var count = 0; //ヒット数
 var numberOfFiles; //総ファイル数
 var option = "g"; //正規表現オプション
+var reg; //検索用正規表現オブジェクト
 
 var SPAN_RED = "<span style='color:red;'>$1</span>";
 //キャラクタ削減用
@@ -82,9 +83,10 @@ var VBCollection = function(c){
 
 //シートオブジェクトの配列
 var sheets;
-
+var start;
 //エントリーポイント
 function main(){
+	start  = new Date();
 	//入力チェック
 	var path = v("path");
 	var key = v("key");
@@ -102,7 +104,7 @@ function main(){
 	if(o("case").checked){
 		option = "gi";//グローバル、大文字小文字区別しない
 	}
-	
+
 	o("status").innerText = "対象ファイルをリストアップ中";
 
 	//初期化
@@ -111,6 +113,7 @@ function main(){
 	clearList();
 	files = new Array();
 	count = 0;
+	reg = new RegExp("("+key+")", option);
 	o("bar").style.width = "0%";
 	o("bar").innerText = "0%";
 	//ここで一旦IEに制御を返す
@@ -139,8 +142,7 @@ function onCancel(){
 
 function filesearch(){
 	var path = v("path");
-	var key = v("key");
-	
+
 	//対象ファイルを検索する
 	searchFolders(fso.getFolder(path));
 
@@ -175,7 +177,6 @@ function searchFolders(topfolder){
 function searchMain(path){
 	if(canceled()) return;
 
-	var key = v("key");
 	var pass = v("pass");
 	try{
 		var book = excel.Workbooks.Open(path, 0, true, 5, pass);
@@ -201,16 +202,15 @@ function sheetProc(book, path){
 		setNext();
 		return;
 	}
-	var key = v("key");
 	var pass = v("pass");
 	if(o("cell").checked){
-		searchCells(book, sheet, path, key);
+		searchCells(book, sheet, path);
 	}
 	if(o("shape").checked){
-		searchShapes(book, sheet, path, key);
+		searchShapes(book, sheet, path);
 	}
 	if(o("comment").checked){
-		searchComments(book, sheet, path, key);
+		searchComments(book, sheet, path);
 	}
 	setTimeout(function(){
 		sheetProc(book, path);
@@ -241,33 +241,34 @@ function setNext(){
 }
 
 //セルの検索
-function searchCells(book, sheet, path, key){
+function searchCells(book, sheet, path){
 	var range = sheet.UsedRange;
 	if(!range) return;
 	
 	if(excel.WorksheetFunction.CountA(range) == 0){
-	console.log("空のシートなので飛ばす ");
-	return;
+		console.log("空のシートなので飛ばす ");
+		return;
 	}
 
 	//リストがあると結合解除がうまくいかないので削除
-	for(var i = 1, cnt = sheet.ListObjects.Count; i <= cnt; i++){
-		sheet.ListObjects(i).Unlist();
-	}
+	new VBCollection(sheet.ListObjects).forEach(function(item){
+		item.Unlist();
+	});
+
 	//結合を解除（共有されている場合は解除できない）
 	if(!book.MultiUserEditing){
 		range.UnMerge();
 	}
+
 	//非表示、オートフィルタを解除
 	if(o("hide").checked){
 		sheet.Columns.Hidden = false;
 		sheet.Rows.Hidden = false;
 		sheet.AutoFilterMode = false;
 	}
-    
+
 	var bookName = book.Name;
 	var sheetName = sheet.Name;
-	var reg = new RegExp("("+key+")", option);
 
 	//チェックと結果生成する関数
 	var checkText = function(text, range, reg, i, j){
@@ -275,9 +276,10 @@ function searchCells(book, sheet, path, key){
 			if(i&&j){
 				range = range.Cells(i,j);
 			}
-	    	text = text.replace(reg, SPAN_RED);
-			createList(bookName, sheetName, "セル(" + range.Address + ")",
- 				text, path, range.Address);
+			text = text.replace(reg, SPAN_RED);
+			var address = range.Address;
+			createList(bookName, sheetName, "セル(" + address + ")",
+ 				text, path, address);
 		}
 	};
 	
@@ -287,7 +289,7 @@ function searchCells(book, sheet, path, key){
 		return;
 	}
 
-	//Range#ValueはJavaScriptだとうまく取得できないのでVBArrayにする
+	//Range#ValueはJavaScriptだとうまく取得できない(セーフ配列)のでVBArrayにする
 	var vbrange = new VBArray(range.Value);
 	for(var i = vbrange.lbound(1), xlen = vbrange.ubound(1); i < xlen; i++){
 		for(var j = vbrange.lbound(2), ylen = vbrange.ubound(2); j < ylen; j++){
@@ -298,7 +300,7 @@ function searchCells(book, sheet, path, key){
 }
 
 //オートシェイプの検索
-function searchShapes(book, sheet, path, key){
+function searchShapes(book, sheet, path){
 	var shps = sheet.Shapes;
 	if(!shps) return;
 
@@ -313,28 +315,37 @@ function searchShapes(book, sheet, path, key){
 		shps = sheet.Shapes;
 	}
 
-	var reg = new RegExp("("+key+")", option);
 	new VBCollection(shps).forEach(function(item){
 		//MsoShapeType オートシェイプ(1) コールアウト(2)(ふき出し?) テキストボックス(17)
 		switch(item.Type){
 			case 1: case 2: case 17:
-				try{
-					//Charactersが失敗する時があるので例外捕捉
-					var text = item.TextFrame.Characters().Text; 
-				}catch(e){
-					return;
-				}
-				if(text && reg.test(text)){
-					text = text.replace(reg, SPAN_RED);
-					createList(book.Name, sheet.Name, 
-						"オートシェイプ(" + item.TopLeftCell.Address + ")",
-						text, path, item.TopLeftCell.Address);
-				}
-				break;
-			default:
+				textSearchInShape(item, reg, book, sheet, path,
+					"オートシェイプ",
+					function(item){return item.TopLeftCell.Address;});
 				break;
 		}
 	});
+}
+
+//図形内テキストの検索（オートシェイプ・コメント共通）
+function textSearchInShape(item, reg, book, sheet, path, type, getAddress){
+	//Charactersが失敗する時があるので例外捕捉
+	try{
+		//テキストが含まれていない（MSOTryState != msoTrue(-1))時は飛ばす（office97以降）
+		if(item.TextFrame2 && item.TextFrame2.HasText != -1) return;
+		if(!item.TextFrame) return;
+		var text = item.TextFrame.Characters().Text; 
+	}catch(e){
+		console.log("図形内テキストの取得に失敗：" + e);
+		return;
+	}
+	if(text && reg.test(text)){
+		text = text.replace(reg, SPAN_RED);
+		var adr = getAddress(item);
+		createList(book.Name, sheet.Name, 
+			type + "(" + adr + ")",
+			text, path, adr);
+	}
 }
 
 //グループ化を全て解除
@@ -352,29 +363,19 @@ function ungroup(obj){
 }
 
 //コメントの検索
-function searchComments(book, sheet, path, key){
+function searchComments(book, sheet, path){
 	var cmnts = sheet.Comments;
 	if(!cmnts) return;
 
-	var reg = new RegExp("("+key+")", option);
 	new VBCollection(cmnts).forEach(function(item){
-		try{
-			//Charactersが失敗する時があるので例外捕捉
-			var text = item.Shape.TextFrame.Characters().Text;    
-		}catch(e){
-			return;
-		}
-		if(text && reg.test(text)){
-			text = text.replace(reg, SPAN_RED);
-			createList(book.Name, sheet.Name,
-				 "コメント(" + item.Parent.Address + ")", text, path, item.Parent.Address);
-		}
+		textSearchInShape(item, reg, book, sheet, path,
+			"コメント",
+			function(item){return item.Parent.Address;});
 	});
 }
 
 //リストの生成
 function createList(file, sheet, type, text, path, addr){
-
 	count++;
 	var tr = d.createElement("tr");
 	var tds = new Array();
@@ -467,7 +468,7 @@ Excelドキュメント検索ツール<br>
 	<tr>
 		<th>パス：</th><td><input id="path" type="text" size="100"/></td>
 	</tr>
-    <tr>
+	<tr>
 		<th>パスワードが必要な場合：</th><td><input id="pass" type="password"/></td>
 	</tr>
 	<tr>
