@@ -306,9 +306,8 @@ function searchShapes(book, sheet, path, key){
 	}
 
 	var reg = new RegExp("("+key+")", option);
-	var items = new Array(shps);
-	for(var i = 0, len = items.length; i < len; i++){
-		var item = items[i];
+	for(var i = 1, len = shps.Count; i <= len; i++){
+		var item = shps.Item(i);
 
 		//MsoShapeType オートシェイプ(1) コールアウト(2)(ふき出し?) テキストボックス(17)
 		switch(item.Type){
@@ -351,9 +350,8 @@ function searchComments(book, sheet, path, key){
 	if(!cmnts) return;
 
 	var reg = new RegExp("("+key+")", option);
-	var items = new Array(cmnts);
-	for(var i = 0, len = items.length; i < len; i++){
-		var item = items[i];
+	for(var i = 1, len = cmnts.Count; i <= len; i++){
+		var item = cmnts.Item(i);
         try{
             //Charactersが失敗する時があるので例外捕捉
             var text = item.Shape.TextFrame.Characters().Text;    
