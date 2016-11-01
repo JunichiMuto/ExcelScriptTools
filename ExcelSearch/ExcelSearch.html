@@ -112,7 +112,11 @@ function main(){
 	clearList();
 	files = new Array();
 	count = 0;
-	reg = new RegExp("("+key+")", option);
+	try{ //正規表現チェック
+		reg = new RegExp("("+key+")", option);
+	}catch(e){
+		alert(e); switchForms(); return;
+	}
 	o("bar").style.width = "0%";
 	o("bar").innerText = "0%";
 	//ここで一旦IEに制御を返す
