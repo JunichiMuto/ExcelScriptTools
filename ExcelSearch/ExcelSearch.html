@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <!--
- @license ExcelSearch v1.2
+ @license ExcelSearch v1.3
  (c) 2016 Junichi Muto (ムチャ) http://jmuto.info/
  License: MIT
  -->
@@ -64,6 +64,27 @@ var option = "g"; //正規表現オプション
 var reg; //検索用正規表現オブジェクト
 
 var SPAN_RED = "<span style='color:red;'>$1</span>";
+
+//IE8対応
+//Array#forEachが無いので実装
+if( !Array.prototype.forEach) {
+  Array.prototype.forEach = function( callback, arg ) {
+	var O = Object(this);
+	var len = O.length >>> 0;
+	for(var i = 0; i < len; i++){
+		callback.call(arg, O[i], i, O);
+	}
+  }
+}
+//console.logがないのでalertで代用
+if(!window.console){
+	window.console = {
+		log: function(m){
+			alert(m);
+		}
+	}
+}
+
 //キャラクタ削減用
 var d = document;
 function o(id){
