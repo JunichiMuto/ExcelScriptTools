@@ -223,9 +223,19 @@ function sheetProc(book, path){
 	var sheet = sheets.shift();
 	if(sheet === undefined){
 		book.Close(false);
-		setNext();
-		return;
+		setNext(); return;
 	}
+	//シート保護されていると非表示解除やSpecialCellがエラーになるので解除
+	//パスワードはとりあえず未対応
+	if(sheet.ProtectContents){
+		try{
+			sheet.Unprotect("");
+		}catch(e){
+			createList("シートの保護解除に失敗", sheet.Name, "", "", path);
+			setNext(); return;
+		}
+	}
+
 	var pass = v("pass");
 	if(o("cell").checked){
 		searchCells(book, sheet, path);
@@ -295,11 +305,8 @@ function searchCells(book, sheet, path){
 	var sheetName = sheet.Name;
 
 	//チェックと結果生成する関数
-	var checkText = function(text, range, reg, i, j){
+	var checkText = function(text, range, reg){
 		if(text && reg.test(text)){
-			if(i&&j){
-				range = range.Cells(i,j);
-			}
 			text = text.replace(reg, SPAN_RED);
 			var address = range.Address;
 			createList(bookName, sheetName, "セル(" + address + ")",
@@ -313,14 +320,10 @@ function searchCells(book, sheet, path){
 		return;
 	}
 
-	//Range#ValueはJavaScriptだとうまく取得できない(セーフ配列)のでVBArrayにする
-	var vbrange = new VBArray(range.Value);
-	for(var i = vbrange.lbound(1), xlen = vbrange.ubound(1); i < xlen; i++){
-		for(var j = vbrange.lbound(2), ylen = vbrange.ubound(2); j < ylen; j++){
-			var text = vbrange.getItem(i,j);
-			checkText(text, range, reg, i, j);
-		}
-	}
+	new VBCollection(range).forEach(function(r){
+		checkText(r.Value, r, reg);
+	});
+
 }
 
 //オートシェイプの検索
@@ -481,6 +484,7 @@ Excelドキュメント検索ツール<br>
 <li>英字の全角半角は区別します。</li>
 <li>検索結果の開くボタンで開いた場合は読み取り専用になります。また再度押すと既に開いていたファイルを閉じます。</li>
 <li>共有ブックでは結合セル内の文字列を検索できません。</li>
+<li>パスワード付きシート保護は解除しておいて下さい。</li>
 </ul>
 </div>
 <br>
