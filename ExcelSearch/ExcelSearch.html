@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
 <!--
- @license ExcelSearch v1.3
- (c) 2016 Junichi Muto (ムチャ) http://jmuto.info/
+ @license ExcelSearch v1.4
+ (c) 2016-2018 Junichi Muto (ムチャ) http://jmuto.info/
  License: MIT
  -->
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
@@ -206,8 +206,7 @@ function searchMain(path){
 		var book = excel.Workbooks.Open(path, 0, true, 5, pass);
 	}catch(e){
 		createList("ファイルオープンに失敗", "", "", "", path);
-		setNext();
-		return;
+		setNext(); return;
 	}
 	sheets = new Array();
 	new VBCollection(book.WorkSheets).forEach(function(sheet){
@@ -319,11 +318,9 @@ function searchCells(book, sheet, path){
 		checkText(range.Value, range, reg);
 		return;
 	}
-
 	new VBCollection(range).forEach(function(r){
 		checkText(r.Value, r, reg);
 	});
-
 }
 
 //オートシェイプの検索
